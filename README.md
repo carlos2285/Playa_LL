@@ -1,16 +1,14 @@
-# Dashboard Territorio (Streamlit)
+# Dashboard Territorio (Streamlit) — Plan de Tabulados
 
-## Cómo ejecutar
-1) Crear un entorno e instalar dependencias:
-```bash
+## Ejecutar localmente
 pip install -r requirements.txt
-```
-2) Ejecutar la app:
-```bash
 streamlit run app.py
-```
-La app ya apunta por defecto a:
-- `data/estructura_hogar_etiquetada.xlsx`
-- `data/metadata/Codebook.xlsx`
 
-En la barra lateral puedes cambiar rutas o agregar un GeoJSON de límites si lo deseas.
+## Datos por defecto
+- data/estructura_hogar_etiquetada.xlsx
+- data/metadata/Codebook.xlsx
+
+## Tips para Streamlit Cloud
+- Sube todo el folder `data/` al repo/app (mantén los mismos nombres y rutas).
+- Si cambias nombres o rutas, ajusta en la barra lateral.
+- Revisa que `p004` exista para los filtros por vivienda/negocio/mixto.

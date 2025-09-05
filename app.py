@@ -1,6 +1,6 @@
 # app.py — Dashboard Territorio con Anexo Estadístico por Sector/Bloque
 # Requisitos: streamlit, pandas, numpy, openpyxl, (opcional) pydeck
-import os, json, glob, math, re
+import os, json, glob, math
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,23 +16,31 @@ except Exception:
     _HAS_PYDECK = False
 
 # ====== Estilo ======
-st.markdown("""
+st.markdown(
+    """
 <style>
 .block-container {padding-top: .9rem; padding-bottom: 2rem; max-width: 1400px;}
 .stMetric {background: rgba(255,255,255,0.035); border-radius: 12px; padding: .6rem .9rem;}
 [data-testid="stSidebar"] {min-width: 360px;}
 h2, h3 { margin-top: 0.8rem; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ====== Utilidades ======
 def to_lower(x):
-    try: return str(x).strip().lower()
-    except: return x
+    try:
+        return str(x).strip().lower()
+    except Exception:
+        return x
 
 def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty: return df
-    df = df.copy(); df.columns = [str(c).strip() for c in df.columns]; return df
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
 
 @st.cache_data(show_spinner=False)
 def load_excel_first_sheet(path: str) -> Tuple[pd.DataFrame, List[str]]:
@@ -41,17 +49,11 @@ def load_excel_first_sheet(path: str) -> Tuple[pd.DataFrame, List[str]]:
     df = pd.read_excel(path, sheet_name=first)
     return df, xls.sheet_names
 
-def auto_glob(patterns: List[str]) -> Optional[str]:
-    for pat in patterns:
-        hits = glob.glob(pat, recursive=True)
-        if hits: return hits[0]
-    return None
-
 def low_card_cats(df: pd.DataFrame, max_unique=60) -> List[str]:
-    out=[]
+    out = []
     for c in df.columns:
         nun = df[c].nunique(dropna=True)
-        if nun<=max_unique and (df[c].dtype=='object' or pd.api.types.is_bool_dtype(df[c]) or nun<=20):
+        if nun <= max_unique and (df[c].dtype == "object" or pd.api.types.is_bool_dtype(df[c]) or nun <= 20):
             out.append(c)
     return out
 
@@ -88,7 +90,7 @@ def geojson_center(gj: dict) -> Tuple[float,float]:
         return (acc[1]+acc[3])/2.0, (acc[0]+acc[2])/2.0
     return 13.494, -89.322  # fallback
 
-# ====== Detectores de columnas del codebook ======
+# ====== Codebook helpers ======
 def _find_col(df, *aliases):
     cols_lc = {str(c).strip().lower(): c for c in df.columns}
     for a in aliases:
@@ -102,15 +104,13 @@ def _find_col(df, *aliases):
                 return orig
     return None
 
-# ====== Codebook (parser robusto + renombrado) ======
-def parse_codebook_any(path: str) -> Tuple[pd.DataFrame, Dict[str, Dict], Dict[str, pd.DataFrame], Dict[str, str]]:
+def parse_codebook_any(path: str):
     xls = pd.ExcelFile(path)
     dfs = {s: normalize_cols(pd.read_excel(path, sheet_name=s)) for s in xls.sheet_names}
 
     df_vars = pd.DataFrame(columns=["variable","tipo","descripcion","nuevo_nombre"])
-    meta: Dict[str, Dict] = {}
-    maps_por_var: Dict[str, pd.DataFrame] = {}
-    ren_map_raw: Dict[str, str] = {}
+    meta = {}
+    ren_map_raw = {}
 
     for s, df in dfs.items():
         if df is None or df.empty:
@@ -118,12 +118,10 @@ def parse_codebook_any(path: str) -> Tuple[pd.DataFrame, Dict[str, Dict], Dict[s
 
         var_col  = _find_col(df, "variable","var","nombre","campo","name")
         tipo_col = _find_col(df, "tipo","type","data_type","clase","class","tipo de variable")
-        desc_col = _find_col(df, "descripcion","descripción","description","detalle","definicion","definición")
         newn_col = _find_col(df, "nuevo_nombre","new_name","etiqueta_variable","etiqueta de variable",
                                   "label_variable","display_name","nombre_publico","nombre público","nombre mostrado")
-        code_col = _find_col(df, "valor","value","code","código","codigo","option_value","código")
-        lab_col  = _find_col(df, "etiqueta","label","meaning","categoria","categoría",
-                                  "option_label","etiqueta del código","etiqueta del codigo")
+        code_col = _find_col(df, "valor","value","code","código","codigo","option_value")
+        lab_col  = _find_col(df, "etiqueta","label","meaning","categoria","categoría","option_label","etiqueta del código")
 
         if var_col:
             cols_take = [var_col]
@@ -170,24 +168,15 @@ def parse_codebook_any(path: str) -> Tuple[pd.DataFrame, Dict[str, Dict], Dict[s
         df_vars = df_vars.drop_duplicates(subset=["variable"])
         df_vars["tipo"] = df_vars.apply(lambda r: (meta.get(str(r["variable"]), {}).get("type") or r.get("tipo")), axis=1)
     else:
-        df_vars = pd.DataFrame([{
-            "variable": v, "tipo": meta.get(v,{}).get("type"), "descripcion": None, "nuevo_nombre": ren_map_raw.get(v)
-        } for v in meta.keys()])
-
-    for v, info in meta.items():
-        mp = info.get("map", {}) or {}
-        if mp:
-            df_map = pd.DataFrame({"codigo": list(mp.keys()), "etiqueta": [mp[k] for k in mp.keys()]})
-            maps_por_var[v] = df_map.sort_values("codigo", key=lambda s: s.astype(str))
+        df_vars = pd.DataFrame([{"variable": v, "tipo": meta.get(v,{}).get("type"), "descripcion": None, "nuevo_nombre": ren_map_raw.get(v)} for v in meta.keys()])
 
     meta_lc = {to_lower(k): {"type": v.get("type"), "map": v.get("map", {})} for k, v in meta.items()}
     ren_lc  = {to_lower(k): ren_map_raw[k] for k in ren_map_raw.keys()}
-    maps_lc = {to_lower(k): val for k, val in maps_por_var.items()}
-
-    return df_vars, meta_lc, maps_lc, ren_lc
+    return df_vars, meta_lc, ren_lc
 
 def apply_codebook(df: pd.DataFrame, df_vars: pd.DataFrame, meta_lc: Dict[str, Dict], ren_lc: Dict[str, str], apply_labels: bool=True) -> pd.DataFrame:
-    if df is None or df.empty: return df
+    if df is None or df.empty:
+        return df
     out = df.copy()
     out.columns = [str(c).strip() for c in out.columns]
 
@@ -218,8 +207,10 @@ def apply_codebook(df: pd.DataFrame, df_vars: pd.DataFrame, meta_lc: Dict[str, D
             if any(k in vtype for k in ["num","int","float","double","decimal"]):
                 out[col] = pd.to_numeric(out[col], errors="ignore")
             elif any(k in vtype for k in ["date","fecha","time"]):
-                try: out[col] = pd.to_datetime(out[col], errors="ignore", infer_datetime_format=True)
-                except Exception: pass
+                try:
+                    out[col] = pd.to_datetime(out[col], errors="ignore", infer_datetime_format=True)
+                except Exception:
+                    pass
 
     if apply_labels and meta_lc:
         cols_lower = {to_lower(c): c for c in out.columns}
@@ -229,7 +220,8 @@ def apply_codebook(df: pd.DataFrame, df_vars: pd.DataFrame, meta_lc: Dict[str, D
             mapping = info.get("map", {}) or {}
             if mapping:
                 raw_col = f"{col}_raw"
-                if raw_col not in out.columns: out[raw_col] = out[col]
+                if raw_col not in out.columns:
+                    out[raw_col] = out[col]
                 out[col] = out[col].apply(lambda x: mapping.get(str(x), mapping.get(x, x)))
     return out
 
@@ -255,13 +247,9 @@ limite_path     = st.sidebar.text_input("Ruta límites (GeoJSON, opcional)", lim
 apply_labels    = st.sidebar.checkbox("Aplicar etiquetas del codebook (si existen)", True)
 dataset_choice  = st.sidebar.radio("Dataset a explorar", ["Solo Estructuras", "Solo Hogares"], index=0)
 
-# ====== Filtro de variables específicas (nuevo) ======
+# ====== Filtro de variables específicas ======
 st.sidebar.subheader("🎯 Filtro de variables específicas")
-_vars_selected = st.sidebar.multiselect(
-    "Elige variables a priorizar en los tabulados y cruces (opcional)",
-    options=[],
-    default=[]
-)
+_vars_selected = st.sidebar.multiselect("Elige variables a priorizar (opcional)", options=[], default=[])
 
 # ====== Carga ======
 with st.spinner("Leyendo archivos…"):
@@ -274,10 +262,10 @@ with st.spinner("Leyendo archivos…"):
             st.warning(f"Archivo no cargado ({p}): {e}")
             return pd.DataFrame()
     try:
-        df_vars, meta_lc, maps_por_var, ren_lc = parse_codebook_any(codebook_path)
+        df_vars, meta_lc, ren_lc = parse_codebook_any(codebook_path)
     except Exception as e:
         st.warning(f"No se pudo parsear el codebook: {e}.")
-        df_vars, meta_lc, maps_por_var, ren_lc = pd.DataFrame(), {}, {}, {}
+        df_vars, meta_lc, ren_lc = pd.DataFrame(), {}, {}
 
     df_estr = load_or_empty(estructuras_path)
     df_hog  = load_or_empty(hogares_path)
@@ -285,23 +273,18 @@ with st.spinner("Leyendo archivos…"):
 base_df = df_estr if dataset_choice=="Solo Estructuras" else df_hog
 df_display = apply_codebook(base_df, df_vars, meta_lc, ren_lc, apply_labels=apply_labels)
 
-# Actualiza opciones del filtro de variables específicas
+# Actualiza opciones del filtro
 if df_display is not None and not df_display.empty:
     all_cols = df_display.columns.tolist()
-    st.session_state["all_cols"] = all_cols
-    # repinta el multiselect con opciones reales
-    _vars_selected = st.sidebar.multiselect(
-        "Elige variables a priorizar en los tabulados y cruces (opcional)",
-        options=all_cols,
-        default=[c for c in ["p004","p005","p006","p007","p008","p009a","p009b","p010","p011","p012","p013","p014","p015","p016","p017","p018","p019","p020","p021","p022","p025","p026","p027","p028","p029","p030","p031","p032","p035","p036"] if c in all_cols]
-    )
+    default_vars = [c for c in ["p004","p005","p006","p007","p008","p009a","p009b","p010","p011","p012","p013","p014","p015","p016","p017","p018","p019","p020","p021","p022","p025","p026","p027","p028","p029","p030","p031","p032","p035","p036"] if c in all_cols]
+    _vars_selected = st.sidebar.multiselect("Elige variables a priorizar (opcional)", options=all_cols, default=default_vars)
 
 sector_col = sector_column(df_display)
 
 # ====== Helpers de tabulado ======
 def tab_simple(df, col, label=None):
     if (len(_vars_selected)>0) and (col not in _vars_selected):
-        return  # respeta filtro
+        return
     if col not in df.columns:
         st.caption(f"• {label or col}: no disponible.")
         return
@@ -318,7 +301,7 @@ def tab_simple(df, col, label=None):
 
 def crosstab(df, rows, cols, normalize='index', label=None):
     if (len(_vars_selected)>0) and ((rows not in _vars_selected) or (cols not in _vars_selected)):
-        return  # respeta filtro
+        return
     if rows not in df.columns or cols not in df.columns:
         st.caption(f"• {label or (rows+' x '+cols)}: no disponible.")
         return
@@ -347,11 +330,9 @@ with tab1:
     st.title("Dashboard del Territorio")
     st.caption("Filtros, KPIs y mapa. Usa el filtro de variables específicas en la barra lateral para acotar tabulados.")
 
-    # ---------- Filtros ----------
     st.sidebar.subheader("Filtros")
     cats = low_card_cats(df_display)
 
-    # filtro específico de sector/bloque
     if sector_col:
         opt_sector = sorted(df_display[sector_col].dropna().astype(str).unique().tolist())
         pick_sector = st.sidebar.multiselect("Filtrar por Sector/Bloque", opt_sector, default=opt_sector)
@@ -359,18 +340,12 @@ with tab1:
         pick_sector = None
 
     options_cats = [c for c in cats if c!=sector_col]
-
     if options_cats:
-        other_selected = st.sidebar.multiselect(
-            "Otras columnas para filtrar (categóricas)",
-            options=options_cats,
-            default=[]
-        )
+        other_selected = st.sidebar.multiselect("Otras columnas para filtrar (categóricas)", options=options_cats, default=[])
     else:
         st.sidebar.caption("No se detectaron columnas categóricas de baja cardinalidad.")
         other_selected = []
 
-    # Aplica filtros
     filtered = df_display.copy()
     if sector_col and pick_sector:
         filtered = filtered[filtered[sector_col].astype(str).isin(pick_sector)]
@@ -379,7 +354,6 @@ with tab1:
         picks = st.sidebar.multiselect(f"{col}", options=vals, default=vals)
         if picks: filtered = filtered[filtered[col].isin(picks)]
 
-    # KPIs
     c1,c2,c3,c4 = st.columns(4)
     with c1: st.metric("Registros (vista)", len(filtered))
     with c2: st.metric("Variables", filtered.shape[1] if not filtered.empty else 0)
@@ -391,7 +365,6 @@ with tab1:
 
     st.divider()
 
-    # Georreferencia + mapa
     lat_guess, lon_guess = (guess_lat_lon(filtered) if not filtered.empty else (None,None))
     st.sidebar.subheader("Georreferencia")
     lat_col = st.sidebar.selectbox("Columna Latitud", ["(auto)"] + list(filtered.columns), index=(filtered.columns.get_loc(lat_guess)+1 if (not filtered.empty and lat_guess in filtered.columns) else 0))
@@ -401,12 +374,8 @@ with tab1:
 
     st.sidebar.subheader("Mapa")
     map_mode        = st.sidebar.selectbox("Modo", ["Puntos","Heatmap","Hexágonos","Grilla"], index=0)
-    color_dim_hint  = st.sidebar.text_input("Color por (categoría, opcional)", sector_col or "")
     pt_size         = st.sidebar.slider("Tamaño de punto", 2, 80, 18, 1)
     pt_opacity      = st.sidebar.slider("Opacidad de punto", 10, 255, 220, 5)
-    show_limits     = st.sidebar.checkbox("Mostrar límites", False)
-    fill_limits     = st.sidebar.checkbox("Rellenar límites", False)
-    limit_opacity   = st.sidebar.slider("Opacidad de límites", 10, 255, 80, 5)
 
     pts = pd.DataFrame()
     if lat_col and lon_col and not filtered.empty and lat_col in filtered.columns and lon_col in filtered.columns:
@@ -438,12 +407,9 @@ with tab1:
     else:
         st.info("Sin puntos para mostrar. Revisa columnas Lat/Long o filtros.")
 
-    # Tabla & descarga
     st.subheader("Tabla filtrada")
     st.dataframe(filtered, use_container_width=True, height=420)
-    st.download_button("⬇️ Descargar CSV filtrado",
-        data=filtered.to_csv(index=False).encode("utf-8-sig"),
-        file_name="filtrado.csv", mime="text/csv")
+    st.download_button("⬇️ Descargar CSV filtrado", data=filtered.to_csv(index=False).encode("utf-8-sig"), file_name="filtrado.csv", mime="text/csv")
 
 # ------------------------- TAB 2: Diccionario -------------------------
 with tab2:
@@ -454,7 +420,7 @@ with tab2:
         if df_vars is not None and not df_vars.empty:
             st.subheader("Variables")
             st.dataframe(df_vars.sort_values("variable"), use_container_width=True, height=420)
-        vars_disponibles = sorted(list({*list(meta_lc.keys()), *[to_lower(v) for v in (df_vars["variable"] if df_vars is not None and not df_vars.empty else [])]}))
+        vars_disponibles = sorted(list({*(list(meta_lc.keys())), *([to_lower(v) for v in (df_vars["variable"] if df_vars is not None and not df_vars.empty else [])])}))
         var_sel = st.selectbox("Elige una variable", options=vars_disponibles) if vars_disponibles else None
         if var_sel:
             row = None
@@ -467,7 +433,7 @@ with tab2:
             st.write(f"**Variable:** `{var_sel}`")
             st.write(f"**Tipo:** {tipo if pd.notna(tipo) and tipo not in [None,'nan','None'] else '—'}")
             st.write(f"**Descripción:** {desc if pd.notna(desc) and desc not in [None,'nan','None'] else '—'}")
-            mp = meta_lc.get(var_sel, {}).get("map", {})
+            mp = (meta_lc.get(var_sel, {}) or {}).get("map", {})
             if mp:
                 df_map = pd.DataFrame({"codigo": list(mp.keys()), "etiqueta": [mp[k] for k in mp.keys()]})
                 st.dataframe(df_map, use_container_width=True, height=320)
@@ -483,7 +449,6 @@ with tab3:
         st.info("No hay datos cargados.")
         st.stop()
 
-    # Filtro por Sector/Bloque
     sector_col = sector_column(df_display)
     if sector_col:
         sectores = sorted(df_display[sector_col].dropna().astype(str).unique().tolist())
@@ -496,7 +461,6 @@ with tab3:
     if sector_col and sectors_pick:
         df_anx = df_anx[df_anx[sector_col].astype(str).isin(sectors_pick)]
 
-    # Heurística de p004 (uso)
     uso_col = "p004" if "p004" in df_anx.columns else next((c for c in df_anx.columns if to_lower(c) in ["uso","uso_estructura","p004_uso"]), None)
     def uso_cat(val):
         s = to_lower(val)
@@ -522,7 +486,6 @@ with tab3:
                     ("p008","Material del piso (p008)")]: 
         if v in df_anx.columns: tab_simple(df_anx, v, label)
 
-    # Cruces clave B
     if uso_col and "p005" in df_anx.columns: crosstab(df_anx, uso_col, "p005", label="p004 × p005 (Estado físico por uso)")
     for cc, name in [("p006","techo (p006)"),("p007","paredes (p007)"),("p008","piso (p008)")]:
         if "p005" in df_anx.columns and cc in df_anx.columns:
@@ -530,7 +493,6 @@ with tab3:
         if uso_col and cc in df_anx.columns:
             crosstab(df_anx, uso_col, cc, label=f"p004 × {name}")
 
-    # Subconjunto hogares (vivienda/mixto)
     df_hh = df_anx[df_anx["_uso_norm"].isin(["vivienda","mixto"])].copy()
 
     # ============ BLOQUE C ============
@@ -548,7 +510,6 @@ with tab3:
     sex_nh   = next((c for c in df_hh.columns if to_lower(c) in ["sexonh","ninos","niños"]), None)
     sex_nm   = next((c for c in df_hh.columns if to_lower(c) in ["sexonm","ninas","niñas"]), None)
 
-    # Tabulados simples C
     if c_vars["nvivienda"]: sumstats(df_hh, [c_vars["nvivienda"]], "Nº de hogares (nvivienda) – promedio/mediana/min/máx")
     sumstats(df_hh, [v for v in [c_vars["p009a"], c_vars["p009b"]] if v], "Nº de espacios habitables (p009a) y Nº de niveles (p009b)")
     if c_vars["p010"]: tab_simple(df_hh, c_vars["p010"], "Tenencia del inmueble (p010)")
@@ -557,7 +518,6 @@ with tab3:
     if any([sex_m_ad, sex_h_ad, sex_nh, sex_nm]):
         sumstats(df_hh, [v for v in [sex_m_ad, sex_h_ad, sex_nh, sex_nm] if v], "Desagregados: mujeres/hombres adultos, niños/niñas")
 
-    # Cruces C
     if col_sex_jef and c_vars["p010"]: crosstab(df_hh, col_sex_jef, c_vars["p010"], label="Sexo jefatura × p010 (tenencia)")
     if col_sex_jef and "p015" in df_hh.columns: crosstab(df_hh, col_sex_jef, "p015", label="Sexo jefatura × p015 (servicios básicos)")
     if col_sex_jef and "p005" in df_hh.columns: crosstab(df_hh, col_sex_jef, "p005", label="Sexo jefatura × p005 (estado físico)")
@@ -616,10 +576,8 @@ with tab3:
                 sumstats(df_neg, [c], name)
             else:
                 tab_simple(df_neg, c, name)
-
     if "p032" in df_neg.columns: tab_simple(df_neg, "p032", "Activos negocio (p032)")
 
-    # Cruces F
     if "p025" in df_neg.columns and "p027" in df_neg.columns: crosstab(df_neg, "p025", "p027", label="Actividad × permisos")
     if "p027" in df_neg.columns and "p028" in df_neg.columns: crosstab(df_neg, "p027", "p028", label="Permisos × tenencia local")
     if "p030" in df_neg.columns and "p029" in df_neg.columns:
@@ -634,10 +592,10 @@ with tab3:
     st.header("BLOQUE G – Espacios públicos y percepción (todos)")
     for c,name in [("p036","Percepción de seguridad (p036)"),
                    ("p035","Condiciones del espacio (p035)"),
-                   ("p035tx","Problemas identificados (p035tx)")]:  # p035tx se sugiere codificar fuera
+                   ("p035tx","Problemas identificados (p035tx)")]:
         if c in df_anx.columns:
             if c.endswith("tx"):
-                st.caption("Variables abiertas (muestra):")
+                st.caption("Variables abiertas (muestra hasta 50):")
                 muestras = df_anx[c].dropna().astype(str).unique().tolist()[:50]
                 if muestras: st.write(muestras)
             else:
@@ -650,36 +608,28 @@ with tab3:
     # ============ BLOQUE I ============
     st.header("BLOQUE I – Indicadores clave para resumen ejecutivo")
     ind = {}
-    # % estructuras en mal estado
     if "p005" in df_anx.columns:
         s = df_anx["p005"].astype(str).str.lower()
         ind["% estructuras en mal estado"] = (s.str.contains("mal") | s.str.contains("defici")).mean()*100
-    # % hogares con jefatura femenina
     if col_sex_jef and col_sex_jef in df_hh.columns:
         s = df_hh[col_sex_jef].astype(str).str.lower()
-        ind["% hogares con jefatura femenina"] = s.str.contains("fem").mean()*100
-    # % hogares con tenencia precaria
+        ind["% hogares con jefatura femenina"] = s.str_contains = s.str.contains("fem").mean()*100
     if c_vars["p010"] and c_vars["p010"] in df_hh.columns:
         s = df_hh[c_vars["p010"]].astype(str).str.lower()
         ind["% hogares con tenencia precaria"] = s.str.contains("precari|ocup|cedid|informal|invad").mean()*100
-    # % hogares sin acceso a agua potable
     if "p015" in df_hh.columns:
         s = df_hh["p015"].astype(str).str.lower()
         ind["% hogares sin acceso a agua potable"] = (~s.str.contains("agua|acueduct|potab")).mean()*100
-    # % hogares con saneamiento inadecuado
     if "p018" in df_hh.columns:
         s = df_hh["p018"].astype(str).str.lower()
         ind["% hogares con saneamiento inadecuado"] = s.str.contains("ningun|ningún|letrina|impro").mean()*100
-    # % negocios sin permisos
     if "p027" in df_neg.columns:
         s = df_neg["p027"].astype(str).str.lower()
         ind["% negocios sin permisos"] = (~s.str.contains("si|sí|permiso")).mean()*100
-    # Promedio activos por hogar y negocio
     if "p022" in df_hh.columns:
         ind["Promedio activos por hogar"] = pd.to_numeric(df_hh["p022"], errors="coerce").mean()
     if "p032" in df_neg.columns:
         ind["Promedio activos por negocio"] = pd.to_numeric(df_neg["p032"], errors="coerce").mean()
-    # % negocios con personal formalizado
     if "p029" in df_neg.columns and "p030" in df_neg.columns:
         tmp = df_neg[["p029","p030"]].apply(pd.to_numeric, errors="coerce").dropna()
         if not tmp.empty:
