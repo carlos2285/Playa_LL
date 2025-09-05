@@ -16,14 +16,14 @@ except Exception:
     _HAS_PYDECK = False
 
 # ====== Estilo ======
-st.markdown(\"\"\"
+st.markdown("""
 <style>
 .block-container {padding-top: .9rem; padding-bottom: 2rem; max-width: 1400px;}
 .stMetric {background: rgba(255,255,255,0.035); border-radius: 12px; padding: .6rem .9rem;}
 [data-testid="stSidebar"] {min-width: 360px;}
 h2, h3 { margin-top: 0.8rem; }
 </style>
-\"\"\", unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # ====== Utilidades ======
 def to_lower(x):
