@@ -228,7 +228,7 @@ def apply_codebook(df: pd.DataFrame, df_vars: pd.DataFrame, meta_lc: Dict[str, D
             if not info: continue
             mapping = info.get("map", {}) or {}
             if mapping:
-                raw_col = f\"{col}_raw\"
+                raw_col = f"{col}_raw"
                 if raw_col not in out.columns: out[raw_col] = out[col]
                 out[col] = out[col].apply(lambda x: mapping.get(str(x), mapping.get(x, x)))
     return out
@@ -584,8 +584,8 @@ with tab3:
     if col_p013 and c_vars["p011"]:
         tmp = df_hh[[col_p013, c_vars["p011"]]].apply(pd.to_numeric, errors="coerce").dropna()
         if not tmp.empty:
-            tmp[\"q_tam\"] = pd.qcut(tmp[c_vars[\"p011\"]], q=min(4, tmp[c_vars[\"p011\"]].nunique()), duplicates=\"drop\")
-            sumstats(tmp.groupby(\"q_tam\")[col_p013].mean().reset_index(name=col_p013), [col_p013], \"Nº con ingresos × tamaño de hogar (cuartiles)\")
+            tmp["q_tam"] = pd.qcut(tmp[c_vars["p011"]], q=min(4, tmp[c_vars["p011"]].nunique()), duplicates="drop")
+            sumstats(tmp.groupby("q_tam")[col_p013].mean().reset_index(name=col_p013), [col_p013], "Nº con ingresos × tamaño de hogar (cuartiles)")
     if col_p022 and c_vars["p010"]: crosstab(df_hh, col_p022, c_vars["p010"], label="Activos × tenencia")
     if col_p022 and "p015" in df_hh.columns: crosstab(df_hh, col_p022, "p015", label="Activos × servicios")
 
